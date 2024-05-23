@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # import the necessary packages
-
+import numpy
 from scipy.spatial import distance as dist
 from imutils.video import FileVideoStream
 from imutils.video import VideoStream
@@ -241,25 +241,19 @@ def distraction_detection(im0s):
     return ret
 
 def exec_picture():
-    # 将图片光线增强
     if args.use_gpu:
-        print("[*] GPU\n")
+        print("[*] GPU")
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_mem)
         with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
             model = lowlight_enhance(sess)
-            if args.phase == 'test':
-                picture_enhancement(model)
-            else:
-                print('[!] Unknown phase')
+            picture_enhancement(model)
     else:
-        print("[*] CPU\n")
+        print("[*] CPU")
         with tf.Session() as sess:
             model = lowlight_enhance(sess)
-            if args.phase == 'test':
-                picture_enhancement(model)
-            else:
-                print('[!] Unknown phase')
+            picture_enhancement(model)
+
 
 def main(_):
     # 定义常数
@@ -309,9 +303,12 @@ def main(_):
     cap = cv2.VideoCapture(0)
     frame_count = 0
 
+    count = 0
+
     # 从视频流循环帧
     while True:
-        fps = cap.get(cv2.CAP_PROP_FPS) # 计算视频的总帧数
+        # fps = cap.get(cv2.CAP_PROP_FPS) # 计算视频的总帧数
+        Roll +=1
         # 进行循环，读取图片，并对图片做维度扩大，并进灰度化
         ret, frame = cap.read()
         frame = imutils.resize(frame, width=720)
@@ -320,32 +317,11 @@ def main(_):
         if not ret:
             break
 
-        # # 每过0.5秒保存图片
-        # if frame_count % (int(fps)*1) == 0:
-        #     # 保存当前视频帧为图片文件
-        #cv2.imwrite('dataset/retinexnet/test/low/{}.jpg'.format(frame_count), frame)
+        # cv2.imwrite('dataset/retinexnet/test/low/{}.jpg'.format(frame_count), frame)
+        # exec_picture()
+        # frame = cv2.imread('results/test/{}_S.jpg'.format(frame_count))
 
-        #if frame_count % (int(fps) * 5) == 0:
-        # thread = threading.Thread(target=exec_picture, name="exec_picture")
-        # thread.start()
-        #exec_picture()
-        #frame = cv2.imread('dataset/retinexnet/test/low/{}.jpg'.format(frame_count))
-
-        #frame_count += 1
-
-        if args.use_gpu:
-            print("[*] GPU")
-            os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
-            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_mem)
-            with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
-                model = lowlight_enhance(sess)
-                model.test(frame)
-        else:
-            print("[*] CPU")
-            with tf.Session() as sess:
-                model = lowlight_enhance(sess)
-                model.test(frame)
-
+        frame_count += 1
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         # 使用detector(gray, 0) 进行脸部位置检测
@@ -393,10 +369,11 @@ def main(_):
             # 循环，满足条件的，眨眼次数+1
             if ear < EYE_AR_THRESH:  # 眼睛长宽比：0.2
                 COUNTER += 1
-
+                Rolleye += 1
             else:
                 # 如果连续3次都小于阈值，则表示进行了一次眨眼活动
                 if COUNTER >= EYE_AR_CONSEC_FRAMES:  # 阈值：3
+
                     TOTAL += 1
                 # 重置眼帧计数器
                 COUNTER = 0
@@ -413,10 +390,12 @@ def main(_):
             # 同理，判断是否打哈欠
             if mar > MAR_THRESH:  # 张嘴阈值0.5
                 mCOUNTER += 1
+                Rollmouth += 1
                 cv2.putText(frame, "Yawning!", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             else:
                 # 如果连续3次都小于阈值，则表示打了一次哈欠
                 if mCOUNTER >= MOUTH_AR_CONSEC_FRAMES:  # 阈值：3
+
                     mTOTAL += 1
                 # 重置嘴帧计数器
                 mCOUNTER = 0
@@ -460,11 +439,12 @@ def main(_):
             print('眼睛实时长宽比:{:.2f} '.format(ear) + "\t是否眨眼：" + str([False, True][COUNTER >= 1]))
 
         # yolo检测
+
         action = distraction_detection(frame)
+        ActionCOUNTER += 1
         for label, prob, xyxy in action:
             # 将标签和置信度何在一起
             text = label + str(prob)
-
             # 画出识别框
             left = int(xyxy[0])
             top = int(xyxy[1])
@@ -474,11 +454,47 @@ def main(_):
 
             # 在框的左上角画出标签和置信度
             cv2.putText(frame, text, (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 1)
+            if (label == "face"):
+                cv2.putText(frame, "NO FACE!!!", (200, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
+            if (label == "phone"):
+                print("<font color=red>正在用手机</font>")
+                print("<font color=red>请不要分心</font>")
+                if ActionCOUNTER > 0:
+                    ActionCOUNTER += 1
+            elif (label == "smoke"):
+                print("<font color=red>正在抽烟</font>")
+                print("<font color=red>请不要分心</font>")
+                if ActionCOUNTER > 0:
+                    ActionCOUNTER += 1
+            elif (label == "drink"):
+                print("<font color=red>正在用喝水</font>")
+                print("<font color=red>请不要分心</font>")
+                if ActionCOUNTER > 0:
+                    ActionCOUNTER += 1
 
 
-        # 确定疲劳提示:眨眼50次，打哈欠15次，瞌睡点头15次
-        if TOTAL >= 50 or mTOTAL >= 15 or hTOTAL >= 15:
-            cv2.putText(frame, "SLEEP!!!", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
+
+        # 如果超过15帧未检测到分心行为，将label修改为平时状态
+        if ActionCOUNTER == 15:
+            ActionCOUNTER = 0
+
+        if Roll%150 == 0:
+            perclos = (Rolleye / Roll) + (Rollmouth / Roll) * 0.2
+            print("过去150帧中，Perclos得分为"+str(round(perclos,3)))
+            count += 1
+            if perclos > 0.38:
+                cv2.putText(frame, "SLEEP!!!", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
+                # 确定疲劳提示:眨眼50次，打哈欠15次，瞌睡点头15次
+
+                if TOTAL >= 50 or mTOTAL >= 15 or hTOTAL >= 15:
+                     cv2.putText(frame, "SLEEP!!!SLEEP!!!", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
+            elif Roll%450 == 0 and count == 3:
+                TOTAL = 0
+                hTOTAL = 0
+                mTOTAL = 0
+                count = 0
+
+
 
         # 按q退出
         cv2.putText(frame, "Press 'q': Quit", (20, 500), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (84, 255, 159), 2)
@@ -491,10 +507,13 @@ def main(_):
 
         tf.get_variable_scope().reuse_variables()
 
+        cv2.imwrite('dataset/retinexnet/test/high/{}.jpg'.format(frame_count), frame)
+
         # shutil.rmtree('./dataset/retinexnet/test/low/')
         # shutil.rmtree('./results/test')
         # os.mkdir('./dataset/retinexnet/test/low/')
         # os.mkdir('./results/test')
+
 
 
 

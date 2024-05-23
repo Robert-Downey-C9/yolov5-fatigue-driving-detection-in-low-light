@@ -267,7 +267,38 @@ class lowlight_enhance(object):
             return False, 0
 
     # 模型的测试，包含了模型的加载、模型的测试和结果图的保存这几个部分。
-    def test(self, frame=None, test_low_data=None, test_high_data=None, test_low_data_names=None, save_dir=None, decom_flag=None):
+    def test(self, test_low_data, test_high_data, test_low_data_names, save_dir, decom_flag):
+
+        # 初始化所有参数并加载最新的Decom-Net和Enhance-Net模型。
+        tf.global_variables_initializer().run()
+
+        print("[*] Reading checkpoint...")
+        load_model_status_Decom, _ = self.load(self.saver_Decom, './models/RetinexNet/model/Decom')
+        load_model_status_Relight, _ = self.load(self.saver_Relight, './models/RetinexNet/model/Relight')
+        if load_model_status_Decom and load_model_status_Relight:
+            print("[*] Load weights successfully...")
+
+        # 遍历测试样本进行测试，并保存最终结果图（可自行指定是否保存Decom-Net的分解结果）。
+        print("[*] Testing...")
+
+        # 多个图片处理
+        for idx in range(len(test_low_data)):
+            print(test_low_data_names[idx])
+            [_, name] = os.path.split(test_low_data_names[idx])
+            suffix = name[name.find('.') + 1:]
+            name = name[:name.find('.')]
+
+            input_low_test = np.expand_dims(test_low_data[idx], axis=0)
+            [R_low, I_low, I_delta, S] = self.sess.run([self.output_R_low, self.output_I_low, self.output_I_delta, self.output_S], feed_dict = {self.input_low: input_low_test})
+
+            if decom_flag == 1:
+                save_images(os.path.join(save_dir, name + "_R_low." + suffix), R_low)
+                save_images(os.path.join(save_dir, name + "_I_low." + suffix), I_low)
+                save_images(os.path.join(save_dir, name + "_I_delta." + suffix), I_delta)
+            save_images(os.path.join(save_dir, name + "_S."   + suffix), S)
+
+
+    def run(self, frame=None):
         
         # 初始化所有参数并加载最新的Decom-Net和Enhance-Net模型。
         tf.global_variables_initializer().run()
@@ -281,21 +312,6 @@ class lowlight_enhance(object):
         # 遍历测试样本进行测试，并保存最终结果图（可自行指定是否保存Decom-Net的分解结果）。
         print("[*] Testing...")
         input_low_test = np.expand_dims(frame, axis=0)
-        self.sess.run([self.output_R_low, self.output_I_low, self.output_I_delta, self.output_S], feed_dict = {self.input_low: input_low_test})
-
-        # 多个图片处理
-        # for idx in range(len(test_low_data)):
-        #     print(test_low_data_names[idx])
-        #     [_, name] = os.path.split(test_low_data_names[idx])
-        #     suffix = name[name.find('.') + 1:]
-        #     name = name[:name.find('.')]
-        #
-        #     input_low_test = np.expand_dims(test_low_data[idx], axis=0)
-        #     [R_low, I_low, I_delta, S] = self.sess.run([self.output_R_low, self.output_I_low, self.output_I_delta, self.output_S], feed_dict = {self.input_low: input_low_test})
-        #
-        #     if decom_flag == 1:
-        #         save_images(os.path.join(save_dir, name + "_R_low." + suffix), R_low)
-        #         save_images(os.path.join(save_dir, name + "_I_low." + suffix), I_low)
-        #         save_images(os.path.join(save_dir, name + "_I_delta." + suffix), I_delta)
-        #     save_images(os.path.join(save_dir, name + "_S."   + suffix), S)
+        [R_low, I_low, I_delta, S] = self.sess.run([self.output_R_low, self.output_I_low, self.output_I_delta, self.output_S], feed_dict = {self.input_low: input_low_test})
+        return S
 

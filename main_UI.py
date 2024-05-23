@@ -1,127 +1,181 @@
-# -*- coding: utf-8 -*- 
-
-import dlib                     # 人脸识别的库dlib
-import numpy as np              # 数据处理的库numpy
-import cv2                      # 图像处理的库OpenCv
-import wx                       # 构造显示界面的GUI
+# -*- coding: utf-8 -*-
+# import the necessary packages
+import numpy as np
+import wx  # 构造显示界面的GUI
 import wx.xrc
 import wx.adv
-# import the necessary packages
 from scipy.spatial import distance as dist
 from imutils.video import FileVideoStream
 from imutils.video import VideoStream
+import torch
+from numpy import random
+# 导入评估器
+from models.experimental import attempt_load
+from utils.general import check_img_size, non_max_suppression, scale_boxes, set_logging
+from utils.torch_utils import select_device, time_sync
 from imutils import face_utils
-import numpy as np # 数据处理的库 numpy
+import numpy as np
 import argparse
 import imutils
-import datetime,time
+import time
+import dlib
+import cv2
 import math
 import os
+import shutil
+import threading
+from glob import glob
+from models.RetinexNet.model import lowlight_enhance
+from utils.RetinexNet.utils import *
+from utils.distraction.utils import *
+from main import *
+import warnings
+warnings.filterwarnings('ignore')
+import tensorflow._api.v2.compat.v1 as tf
+tf.disable_v2_behavior()
 
+tf.reset_default_graph()
 ###########################################################################
 ## Class Fatigue_detecting
 ###########################################################################
 
-COVER = './images/camera.png'
+COVER = 'data/img/camera.png'
+
 
 class Fatigue_detecting(wx.Frame):
 
-    def __init__( self, parent, title ):
-        wx.Frame.__init__ ( self, parent, id = wx.ID_ANY, title = title, pos = wx.DefaultPosition, size = wx.Size( 873,535 ), style = wx.DEFAULT_FRAME_STYLE|wx.TAB_TRAVERSAL )
-                
-        self.SetSizeHints( wx.DefaultSize, wx.DefaultSize )
-        self.SetBackgroundColour( wx.SystemSettings.GetColour( wx.SYS_COLOUR_MENU ) )
+    def __init__(self, parent, title):
+        wx.Frame.__init__(self, parent, id=wx.ID_ANY, title=title, pos=wx.DefaultPosition, size=wx.Size(873, 535),
+                          style=wx.DEFAULT_FRAME_STYLE | wx.TAB_TRAVERSAL)
 
-        bSizer1 = wx.BoxSizer( wx.VERTICAL )
-        bSizer2 = wx.BoxSizer( wx.HORIZONTAL )
-        bSizer3 = wx.BoxSizer( wx.VERTICAL )
+        self.SetSizeHints(wx.DefaultSize, wx.DefaultSize)
+        self.SetBackgroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_MENU))
 
-        self.m_animCtrl1 = wx.adv.AnimationCtrl( self, wx.ID_ANY, wx.adv.NullAnimation, wx.DefaultPosition, wx.DefaultSize, wx.adv.AC_DEFAULT_STYLE ) 
-        bSizer3.Add( self.m_animCtrl1, 1, wx.ALL|wx.EXPAND, 5 )        
-        bSizer2.Add( bSizer3, 9, wx.EXPAND, 5 )
-        bSizer4 = wx.BoxSizer( wx.VERTICAL )
-        sbSizer1 = wx.StaticBoxSizer( wx.StaticBox( self, wx.ID_ANY, u"参数设置" ), wx.VERTICAL )
-        sbSizer2 = wx.StaticBoxSizer( wx.StaticBox( sbSizer1.GetStaticBox(), wx.ID_ANY, u"视频源" ), wx.VERTICAL )
-        gSizer1 = wx.GridSizer( 0, 2, 0, 8 )
-        m_choice1Choices = [ u"摄像头ID_0", u"摄像头ID_1", u"摄像头ID_2" ]
-        self.m_choice1 = wx.Choice( sbSizer2.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.Size( 90,25 ), m_choice1Choices, 0 )
-        self.m_choice1.SetSelection( 0 )
-        gSizer1.Add( self.m_choice1, 0, wx.ALL, 5 )
-        self.camera_button1 = wx.Button( sbSizer2.GetStaticBox(), wx.ID_ANY, u"开始检测", wx.DefaultPosition, wx.Size( 90,25 ), 0 )
-        gSizer1.Add( self.camera_button1, 0, wx.ALL, 5 )
-        self.vedio_button2 = wx.Button( sbSizer2.GetStaticBox(), wx.ID_ANY, u"打开视频文件", wx.DefaultPosition, wx.Size( 90,25 ), 0 )
-        gSizer1.Add( self.vedio_button2, 0, wx.ALL, 5 )
+        bSizer1 = wx.BoxSizer(wx.VERTICAL) # 垂直分布
+        bSizer2 = wx.BoxSizer(wx.HORIZONTAL) # 水平分布
+        bSizer3 = wx.BoxSizer(wx.VERTICAL)
 
-        self.off_button3 = wx.Button( sbSizer2.GetStaticBox(), wx.ID_ANY, u"暂停", wx.DefaultPosition, wx.Size( 90,25 ), 0 )
-        gSizer1.Add( self.off_button3, 0, wx.ALL, 5 )
-        sbSizer2.Add( gSizer1, 1, wx.EXPAND, 5 )
-        sbSizer1.Add( sbSizer2, 2, wx.EXPAND, 5 )
-        sbSizer3 = wx.StaticBoxSizer( wx.StaticBox( sbSizer1.GetStaticBox(), wx.ID_ANY, u"疲劳检测" ), wx.VERTICAL )
-        bSizer5 = wx.BoxSizer( wx.HORIZONTAL )
-        self.yawn_checkBox1 = wx.CheckBox( sbSizer3.GetStaticBox(), wx.ID_ANY, u"打哈欠检测", wx.Point( -1,-1 ), wx.Size( -1,15 ), 0 )
-        self.yawn_checkBox1.SetValue(True) 
-        bSizer5.Add( self.yawn_checkBox1, 0, wx.ALL, 5 )
-        self.blink_checkBox2 = wx.CheckBox( sbSizer3.GetStaticBox(), wx.ID_ANY, u"闭眼检测", wx.Point( -1,-1 ), wx.Size( -1,15 ), 0 )
-        self.blink_checkBox2.SetValue(True) 
-        bSizer5.Add( self.blink_checkBox2, 0, wx.ALL, 5 )
-        sbSizer3.Add( bSizer5, 1, wx.EXPAND, 5 )
-        bSizer6 = wx.BoxSizer( wx.HORIZONTAL )
-        self.nod_checkBox7 = wx.CheckBox( sbSizer3.GetStaticBox(), wx.ID_ANY, u"点头检测", wx.Point( -1,-1 ), wx.Size( -1,15 ), 0 )
-        self.nod_checkBox7.SetValue(True) 
-        bSizer6.Add( self.nod_checkBox7, 0, wx.ALL, 5 )
-        self.m_staticText1 = wx.StaticText( sbSizer3.GetStaticBox(), wx.ID_ANY, u"疲劳时间(秒):", wx.DefaultPosition, wx.Size( -1,15 ), 0 )
-        self.m_staticText1.Wrap( -1 )
-        bSizer6.Add( self.m_staticText1, 0, wx.ALL, 5 )
-        m_listBox2Choices = [ u"3", u"4", u"5", u"6", u"7", u"8" ]
-        self.m_listBox2 = wx.ListBox( sbSizer3.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.Size( 50,24 ), m_listBox2Choices, 0 )
-        bSizer6.Add( self.m_listBox2, 0, 0, 5 )
-        sbSizer3.Add( bSizer6, 1, wx.EXPAND, 5 )
-        sbSizer1.Add( sbSizer3, 2, 0, 5 )
-        sbSizer4 = wx.StaticBoxSizer( wx.StaticBox( sbSizer1.GetStaticBox(), wx.ID_ANY, u"脱岗检测" ), wx.VERTICAL )
-        bSizer8 = wx.BoxSizer( wx.HORIZONTAL )
-        self.m_checkBox4 = wx.CheckBox( sbSizer4.GetStaticBox(), wx.ID_ANY, u"脱岗检测", wx.DefaultPosition, wx.Size( -1,15 ), 0 )
-        self.m_checkBox4.SetValue(True) 
-        bSizer8.Add( self.m_checkBox4, 0, wx.ALL, 5 )
-        self.m_staticText2 = wx.StaticText( sbSizer4.GetStaticBox(), wx.ID_ANY, u"脱岗时间(秒):", wx.DefaultPosition, wx.Size( -1,15 ), 0 )
-        self.m_staticText2.Wrap( -1 )
-        bSizer8.Add( self.m_staticText2, 0, wx.ALL, 5 )
-        m_listBox21Choices = [ u"5", u"10", u"15", u"20", u"25", u"30" ]
-        self.m_listBox21 = wx.ListBox( sbSizer4.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.Size( 50,24 ), m_listBox21Choices, 0 )
-        bSizer8.Add( self.m_listBox21, 0, 0, 5 )
-        sbSizer4.Add( bSizer8, 1, 0, 5 )
-        sbSizer1.Add( sbSizer4, 1, 0, 5 )
-        sbSizer5 = wx.StaticBoxSizer( wx.StaticBox( sbSizer1.GetStaticBox(), wx.ID_ANY, u"分析区域" ), wx.VERTICAL )
-        bSizer9 = wx.BoxSizer( wx.HORIZONTAL )
-        self.m_staticText3 = wx.StaticText( sbSizer5.GetStaticBox(), wx.ID_ANY, u"检测区域：   ", wx.DefaultPosition, wx.DefaultSize, 0 )
-        self.m_staticText3.Wrap( -1 )
-        bSizer9.Add( self.m_staticText3, 0, wx.ALL, 5 )
-        m_choice2Choices = [ u"全视频检测", u"部分区域选取" ]
-        self.m_choice2 = wx.Choice( sbSizer5.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, m_choice2Choices, 0 )
-        self.m_choice2.SetSelection( 0 )
-        bSizer9.Add( self.m_choice2, 0, wx.ALL, 5 )
-        sbSizer5.Add( bSizer9, 1, wx.EXPAND, 5 )
-        sbSizer1.Add( sbSizer5, 1, 0, 5 )
-        sbSizer6 = wx.StaticBoxSizer( wx.StaticBox( sbSizer1.GetStaticBox(), wx.ID_ANY, u"状态输出" ), wx.VERTICAL )
-        self.m_textCtrl3 = wx.TextCtrl( sbSizer6.GetStaticBox(), wx.ID_ANY, wx.EmptyString, wx.DefaultPosition, wx.DefaultSize, wx.TE_MULTILINE|wx.TE_READONLY )
-        sbSizer6.Add( self.m_textCtrl3, 1, wx.ALL|wx.EXPAND, 5 )
-        sbSizer1.Add( sbSizer6, 5, wx.EXPAND, 5 )
-        bSizer4.Add( sbSizer1, 1, wx.EXPAND, 5 )
-        bSizer2.Add( bSizer4, 3, wx.EXPAND, 5 )
-        bSizer1.Add( bSizer2, 1, wx.EXPAND, 5 )
+        self.m_animCtrl1 = wx.adv.AnimationCtrl(self, wx.ID_ANY, wx.adv.NullAnimation, wx.DefaultPosition,
+                                                wx.DefaultSize, wx.adv.AC_DEFAULT_STYLE)
+        bSizer3.Add(self.m_animCtrl1, 1, wx.ALL | wx.EXPAND, 5)
+        bSizer2.Add(bSizer3, 9, wx.EXPAND, 5)
+        bSizer4 = wx.BoxSizer(wx.VERTICAL)
 
-        self.SetSizer( bSizer1 )  
+        # 右侧最外面的大盒子
+        sbSizer1 = wx.StaticBoxSizer(wx.StaticBox(self, wx.ID_ANY, u"参数设置"), wx.VERTICAL)
+        # 右侧第一个小盒子
+        sbSizer2 = wx.StaticBoxSizer(wx.StaticBox(sbSizer1.GetStaticBox(), wx.ID_ANY, u"视频源"), wx.VERTICAL)
+        # 网格分布，右侧第一个盒子
+        gSizer1 = wx.GridSizer(0, 2, 0, 8)
+        m_choice1Choices = [u"摄像头ID_0", u"摄像头ID_1", u"摄像头ID_2"]
+        self.m_choice1 = wx.Choice(sbSizer2.GetStaticBox(), wx.ID_ANY, wx.DefaultPosition, wx.Size(90, 25),
+                                   m_choice1Choices, 0)
+        self.m_choice1.SetSelection(0)
+        gSizer1.Add(self.m_choice1, 0, wx.ALL, 5)
+        self.camera_button1 = wx.Button(sbSizer2.GetStaticBox(), wx.ID_ANY, u"开始检测", wx.DefaultPosition,
+                                        wx.Size(90, 25), 0)
+        gSizer1.Add(self.camera_button1, 0, wx.ALL, 5)
+        self.vedio_button2 = wx.Button(sbSizer2.GetStaticBox(), wx.ID_ANY, u"打开视频文件", wx.DefaultPosition,
+                                       wx.Size(90, 25), 0)
+        gSizer1.Add(self.vedio_button2, 0, wx.ALL, 5)
+
+        self.off_button3 = wx.Button(sbSizer2.GetStaticBox(), wx.ID_ANY, u"暂停", wx.DefaultPosition, wx.Size(90, 25),
+                                     0)
+        gSizer1.Add(self.off_button3, 0, wx.ALL, 5)
+        sbSizer2.Add(gSizer1, 1, wx.EXPAND, 5)
+        sbSizer1.Add(sbSizer2, 2, wx.EXPAND, 5)
+
+        sbSizer7 = wx.StaticBoxSizer(wx.StaticBox(sbSizer1.GetStaticBox(), wx.ID_ANY, u"环境选择"), wx.VERTICAL)
+
+        bSizer91 = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.lowlight_checkBox5 = wx.CheckBox(sbSizer7.GetStaticBox(), wx.ID_ANY, u"低光环境", wx.DefaultPosition,
+                                              wx.Size(-1, 15), 0)
+        bSizer91.Add(self.lowlight_checkBox5, 0, wx.ALL, 5)
+
+        sbSizer7.Add(bSizer91, 1, wx.EXPAND, 5)
+
+        sbSizer1.Add(sbSizer7, 1, wx.EXPAND, 5)
+
+        sbSizer3 = wx.StaticBoxSizer(wx.StaticBox(sbSizer1.GetStaticBox(), wx.ID_ANY, u"疲劳检测"), wx.VERTICAL)
+
+        bSizer5 = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.yawn_checkBox1 = wx.CheckBox(sbSizer3.GetStaticBox(), wx.ID_ANY, u"打哈欠检测", wx.Point(-1, -1),
+                                          wx.Size(-1, 15), 0)
+        self.yawn_checkBox1.SetValue(True)
+        bSizer5.Add(self.yawn_checkBox1, 0, wx.ALL, 5)
+
+        self.blink_checkBox2 = wx.CheckBox(sbSizer3.GetStaticBox(), wx.ID_ANY, u"闭眼检测", wx.Point(-1, -1),
+                                           wx.Size(-1, 15), 0)
+        self.blink_checkBox2.SetValue(True)
+        bSizer5.Add(self.blink_checkBox2, 0, wx.ALL, 5)
+
+        sbSizer3.Add(bSizer5, 1, wx.EXPAND, 5)
+
+        bSizer6 = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.nod_checkBox7 = wx.CheckBox(sbSizer3.GetStaticBox(), wx.ID_ANY, u"点头检测", wx.Point(-1, -1),
+                                         wx.Size(-1, 15), 0)
+        self.nod_checkBox7.SetValue(True)
+        bSizer6.Add(self.nod_checkBox7, 0, wx.ALL, 5)
+
+        sbSizer3.Add(bSizer6, 1, wx.EXPAND, 5)
+
+        sbSizer1.Add(sbSizer3, 2, 0, 5)
+
+        sbSizer4 = wx.StaticBoxSizer(wx.StaticBox(sbSizer1.GetStaticBox(), wx.ID_ANY, u"分心检测"), wx.VERTICAL)
+
+        bSizer8 = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.smoke_checkBox4 = wx.CheckBox(sbSizer4.GetStaticBox(), wx.ID_ANY, u"抽烟检测", wx.DefaultPosition,
+                                           wx.Size(-1, 15), 0)
+        self.smoke_checkBox4.SetValue(True)
+        bSizer8.Add(self.smoke_checkBox4, 0, wx.ALL, 5)
+
+        self.drink_checkBox6 = wx.CheckBox(sbSizer4.GetStaticBox(), wx.ID_ANY, u"喝水检测", wx.DefaultPosition,
+                                           wx.Size(-1, 15), 0)
+        self.drink_checkBox6.SetValue(True)
+        bSizer8.Add(self.drink_checkBox6, 0, wx.ALL, 5)
+
+        sbSizer4.Add(bSizer8, 1, 0, 5)
+
+        bSizer10 = wx.BoxSizer(wx.VERTICAL)
+
+        self.phone_checkBox7 = wx.CheckBox(sbSizer4.GetStaticBox(), wx.ID_ANY, u"打电话检测", wx.DefaultPosition,
+                                           wx.Size(-1, 15), 0)
+        self.phone_checkBox7.SetValue(True)
+        bSizer10.Add(self.phone_checkBox7, 0, wx.ALL, 5)
+
+        sbSizer4.Add(bSizer10, 1, wx.EXPAND, 5)
+
+        sbSizer1.Add(sbSizer4, 1, 0, 5)
+
+        sbSizer6 = wx.StaticBoxSizer(wx.StaticBox(sbSizer1.GetStaticBox(), wx.ID_ANY, u"状态输出"), wx.VERTICAL)
+
+        self.m_textCtrl3 = wx.TextCtrl(sbSizer6.GetStaticBox(), wx.ID_ANY, wx.EmptyString, wx.DefaultPosition,
+                                       wx.DefaultSize, wx.TE_MULTILINE | wx.TE_READONLY)
+        sbSizer6.Add(self.m_textCtrl3, 1, wx.ALL | wx.EXPAND, 5)
+
+        sbSizer1.Add(sbSizer6, 5, wx.EXPAND, 5)
+
+        bSizer4.Add(sbSizer1, 1, wx.EXPAND, 5)
+
+        bSizer2.Add(bSizer4, 3, wx.EXPAND, 5)
+
+        bSizer1.Add(bSizer2, 1, wx.EXPAND, 5)
+
+        self.SetSizer(bSizer1)
         self.Layout()
-        self.Centre( wx.BOTH )
-        
-        # Connect Events
-        self.m_choice1.Bind( wx.EVT_CHOICE, self.cameraid_choice )#绑定事件
-        self.camera_button1.Bind( wx.EVT_BUTTON, self.camera_on )#开
-        self.vedio_button2.Bind( wx.EVT_BUTTON, self.vedio_on )
-        self.off_button3.Bind( wx.EVT_BUTTON, self.off )#关
 
-        self.m_listBox2.Bind( wx.EVT_LISTBOX, self.AR_CONSEC_FRAMES )# 闪烁阈值设置
-        self.m_listBox21.Bind( wx.EVT_LISTBOX, self.OUT_AR_CONSEC_FRAMES )# 脱岗时间设置
-        
+        self.Centre(wx.BOTH)
+
+        # Connect Events
+        self.m_choice1.Bind(wx.EVT_CHOICE, self.cameraid_choice)
+        self.camera_button1.Bind(wx.EVT_BUTTON, self.camera_on)
+        self.vedio_button2.Bind(wx.EVT_BUTTON, self.vedio_on)
+        self.off_button3.Bind(wx.EVT_BUTTON, self.off)
+
         # 封面图片
         self.image_cover = wx.Image(COVER, wx.BITMAP_TYPE_ANY)
         # 显示图片在m_animCtrl1上
@@ -132,16 +186,26 @@ class Fatigue_detecting(wx.Frame):
         self.SetIcon(self.icon)
         # 系统事件
         self.Bind(wx.EVT_CLOSE, self.OnClose)
-        
+
         print("wxpython界面初始化加载完成！")
-        
+
         """参数"""
+        # 必要的设置
+        self.use_gpu = 0
+        self.gpu_idx = '0'
+        self.gpu_mem = 0.5
+        self.phase = 'test'
+        self.save_dir = './results/test'
+        self.test_dir = './dataset/retinexnet/test/low'
+        self.decom = 0
+
         # 默认为摄像头0
         self.VIDEO_STREAM = 0
-        self.CAMERA_STYLE = False # False未打开摄像头，True摄像头已打开
+        self.CAMERA_STYLE = False  # False未打开摄像头，True摄像头已打开
         # 闪烁阈值（秒）
         self.AR_CONSEC_FRAMES_check = 3
-        self.OUT_AR_CONSEC_FRAMES_check = 5
+        # 未检测人脸阈值（秒）
+        self.OUT_AR_CONSEC_FRAMES_check = 10
         # 眼睛长宽比
         self.EYE_AR_THRESH = 0.2
         self.EYE_AR_CONSEC_FRAMES = self.AR_CONSEC_FRAMES_check
@@ -151,7 +215,7 @@ class Fatigue_detecting(wx.Frame):
         # 瞌睡点头
         self.HAR_THRESH = 0.3
         self.NOD_AR_CONSEC_FRAMES = self.AR_CONSEC_FRAMES_check
-        
+
         """计数"""
         # 初始化帧计数器和眨眼总数
         self.COUNTER = 0
@@ -165,27 +229,41 @@ class Fatigue_detecting(wx.Frame):
         # 离职时间长度
         self.oCOUNTER = 0
 
+        # 分心检测计数器
+        self.ActionCOUNTER = 0
+
+        # 疲劳判断变量
+        # Perclos模型
+        # perclos = (Rolleye/Roll) + (Rollmouth/Roll)*0.2
+        self.Roll = 0  # 整个循环内的帧技术
+        self.Rolleye = 0  # 循环内闭眼帧数
+        self.Rollmouth = 0  # 循环内打哈欠数
+
+        self.frame_count = 0
+
+        self.count = 0
+
         """姿态"""
         # 世界坐标系(UVW)：填写3D参考点，该模型参考http://aifi.isr.uc.pt/Downloads/OpenGL/glAnthropometric3DModel.cpp
-        self.object_pts = np.float32([[6.825897, 6.760612, 4.402142],  #33左眉左上角
-                                 [1.330353, 7.122144, 6.903745],  #29左眉右角
-                                 [-1.330353, 7.122144, 6.903745], #34右眉左角
-                                 [-6.825897, 6.760612, 4.402142], #38右眉右上角
-                                 [5.311432, 5.485328, 3.987654],  #13左眼左上角
-                                 [1.789930, 5.393625, 4.413414],  #17左眼右上角
-                                 [-1.789930, 5.393625, 4.413414], #25右眼左上角
-                                 [-5.311432, 5.485328, 3.987654], #21右眼右上角
-                                 [2.005628, 1.409845, 6.165652],  #55鼻子左上角
-                                 [-2.005628, 1.409845, 6.165652], #49鼻子右上角
-                                 [2.774015, -2.080775, 5.048531], #43嘴左上角
-                                 [-2.774015, -2.080775, 5.048531],#39嘴右上角
-                                 [0.000000, -3.116408, 6.097667], #45嘴中央下角
-                                 [0.000000, -7.415691, 4.070434]])#6下巴角
+        self.object_pts = np.float32([[6.825897, 6.760612, 4.402142],  # 33左眉左上角
+                                      [1.330353, 7.122144, 6.903745],  # 29左眉右角
+                                      [-1.330353, 7.122144, 6.903745],  # 34右眉左角
+                                      [-6.825897, 6.760612, 4.402142],  # 38右眉右上角
+                                      [5.311432, 5.485328, 3.987654],  # 13左眼左上角
+                                      [1.789930, 5.393625, 4.413414],  # 17左眼右上角
+                                      [-1.789930, 5.393625, 4.413414],  # 25右眼左上角
+                                      [-5.311432, 5.485328, 3.987654],  # 21右眼右上角
+                                      [2.005628, 1.409845, 6.165652],  # 55鼻子左上角
+                                      [-2.005628, 1.409845, 6.165652],  # 49鼻子右上角
+                                      [2.774015, -2.080775, 5.048531],  # 43嘴左上角
+                                      [-2.774015, -2.080775, 5.048531],  # 39嘴右上角
+                                      [0.000000, -3.116408, 6.097667],  # 45嘴中央下角
+                                      [0.000000, -7.415691, 4.070434]])  # 6下巴角
 
         # 相机坐标系(XYZ)：添加相机内参
         self.K = [6.5308391993466671e+002, 0.0, 3.1950000000000000e+002,
-                 0.0, 6.5308391993466671e+002, 2.3950000000000000e+002,
-                 0.0, 0.0, 1.0]# 等价于矩阵[fx, 0, cx; 0, fy, cy; 0, 0, 1]
+                  0.0, 6.5308391993466671e+002, 2.3950000000000000e+002,
+                  0.0, 0.0, 1.0]  # 等价于矩阵[fx, 0, cx; 0, fy, cy; 0, 0, 1]
         # 图像中心坐标系(uv)：相机畸变参数[k1, k2, p1, p2, k3]
         self.D = [7.0834633684407095e-002, 6.9140193737175351e-002, 0.0, 0.0, -1.3073460323689292e+000]
 
@@ -195,23 +273,22 @@ class Fatigue_detecting(wx.Frame):
 
         # 重新投影3D点的世界坐标轴以验证结果姿势
         self.reprojectsrc = np.float32([[10.0, 10.0, 10.0],
-                                       [10.0, 10.0, -10.0],
-                                       [10.0, -10.0, -10.0],
-                                       [10.0, -10.0, 10.0],
-                                       [-10.0, 10.0, 10.0],
-                                       [-10.0, 10.0, -10.0],
-                                       [-10.0, -10.0, -10.0],
-                                       [-10.0, -10.0, 10.0]])
+                                        [10.0, 10.0, -10.0],
+                                        [10.0, -10.0, -10.0],
+                                        [10.0, -10.0, 10.0],
+                                        [-10.0, 10.0, 10.0],
+                                        [-10.0, 10.0, -10.0],
+                                        [-10.0, -10.0, -10.0],
+                                        [-10.0, -10.0, 10.0]])
         # 绘制正方体12轴
         self.line_pairs = [[0, 1], [1, 2], [2, 3], [3, 0],
-                          [4, 5], [5, 6], [6, 7], [7, 4],
-                          [0, 4], [1, 5], [2, 6], [3, 7]]
-        
+                           [4, 5], [5, 6], [6, 7], [7, 4],
+                           [0, 4], [1, 5], [2, 6], [3, 7]]
 
-    def __del__( self ):
+    def __del__(self):
         pass
 
-    def get_head_pose(self,shape):# 头部姿态估计
+    def get_head_pose(self, shape):  # 头部姿态估计
         # （像素坐标集合）填写2D参考点，注释遵循https://ibug.doc.ic.ac.uk/resources/300-W/
         # 17左眉左上角/21左眉右角/22右眉左上角/26右眉右上角/36左眼左上角/39左眼右上角/42右眼左上角/
         # 45右眼右上角/31鼻子左上角/35鼻子右上角/48左上角/54嘴右上角/57嘴中央下角/8下巴角
@@ -222,13 +299,14 @@ class Fatigue_detecting(wx.Frame):
         # rotation_vec表示旋转矩阵，translation_vec表示平移矩阵，cam_matrix与K矩阵对应，dist_coeffs与D矩阵对应。
         _, rotation_vec, translation_vec = cv2.solvePnP(self.object_pts, image_pts, self.cam_matrix, self.dist_coeffs)
         # projectPoints重新投影误差：原2d点和重投影2d点的距离（输入3d点、相机内参、相机畸变、r、t，输出重投影2d点）
-        reprojectdst, _ = cv2.projectPoints(self.reprojectsrc, rotation_vec, translation_vec, self.cam_matrix,self.dist_coeffs)
-        reprojectdst = tuple(map(tuple, reprojectdst.reshape(8, 2)))# 以8行2列显示
+        reprojectdst, _ = cv2.projectPoints(self.reprojectsrc, rotation_vec, translation_vec, self.cam_matrix,
+                                            self.dist_coeffs)
+        reprojectdst = tuple(map(tuple, reprojectdst.reshape(8, 2)))  # 以8行2列显示
 
         # 计算欧拉角calc euler angle
         # 参考https://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html#decomposeprojectionmatrix
-        rotation_mat, _ = cv2.Rodrigues(rotation_vec)#罗德里格斯公式（将旋转矩阵转换为旋转向量）
-        pose_mat = cv2.hconcat((rotation_mat, translation_vec))# 水平拼接，vconcat垂直拼接
+        rotation_mat, _ = cv2.Rodrigues(rotation_vec)  # 罗德里格斯公式（将旋转矩阵转换为旋转向量）
+        pose_mat = cv2.hconcat((rotation_mat, translation_vec))  # 水平拼接，vconcat垂直拼接
         # decomposeProjectionMatrix将投影矩阵分解为旋转矩阵和相机矩阵
         _, _, _, _, _, _, euler_angle = cv2.decomposeProjectionMatrix(pose_mat)
 
@@ -237,13 +315,13 @@ class Fatigue_detecting(wx.Frame):
         pitch = math.degrees(math.asin(math.sin(pitch)))
         roll = -math.degrees(math.asin(math.sin(roll)))
         yaw = math.degrees(math.asin(math.sin(yaw)))
-        #print('pitch:{}, yaw:{}, roll:{}'.format(pitch, yaw, roll))
+        # print('pitch:{}, yaw:{}, roll:{}'.format(pitch, yaw, roll))
 
-        return reprojectdst, euler_angle# 投影误差，欧拉角
-    
-    def eye_aspect_ratio(self,eye):
+        return reprojectdst, euler_angle  # 投影误差，欧拉角
+
+    def eye_aspect_ratio(self, eye):
         # 垂直眼标志（X，Y）坐标
-        A = dist.euclidean(eye[1], eye[5])# 计算两个集合之间的欧式距离
+        A = dist.euclidean(eye[1], eye[5])  # 计算两个集合之间的欧式距离
         B = dist.euclidean(eye[2], eye[4])
         # 计算水平之间的欧几里得距离
         # 水平眼标志（X，Y）坐标
@@ -253,15 +331,113 @@ class Fatigue_detecting(wx.Frame):
         # 返回眼睛的长宽比
         return ear
 
-    def mouth_aspect_ratio(self,mouth):# 嘴部
+    def mouth_aspect_ratio(self, mouth):  # 嘴部
         A = np.linalg.norm(mouth[2] - mouth[9])  # 51, 59
         B = np.linalg.norm(mouth[4] - mouth[7])  # 53, 57
         C = np.linalg.norm(mouth[0] - mouth[6])  # 49, 55
         mar = (A + B) / (2.0 * C)
         return mar
 
+    # 图片增强
+    def picture_enhancement(self, lowlight_enhance):
+        # 检查测试样本所在的目录是否存在，以及准备测试结果保存的目录
+        if self.test_dir == None:
+            print("[!] please provide --test_dir")
 
-    def _learning_face(self,event):
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
+
+        # 读取测试样本（其中test_high_data并没有用到）
+        test_low_data_name = glob(os.path.join(self.test_dir) + '/*.*')
+        test_low_data = []
+        test_high_data = []
+        for idx in range(len(test_low_data_name)):
+            test_low_im = load_images(test_low_data_name[idx])
+            test_low_data.append(test_low_im)
+
+        # 测试整个架构（其中test_high_data为无效参数）
+        lowlight_enhance.test(test_low_data, test_high_data, test_low_data_name, save_dir=self.save_dir,
+                              decom_flag=self.decom)
+
+    # yolov5算法
+    def distraction_detection(self, im0s):
+        weights = r'weights/best.pt'
+        opt_device = 'cpu'  # device = 'cpu' or '0' or '0,1,2,3'
+        imgsz = 640
+        opt_conf_thres = 0.6
+        opt_iou_thres = 0.45
+
+        # Initialize
+        set_logging()
+        device = select_device(opt_device)
+        half = device.type != 'cpu'  # half precision only supported on CUDA
+
+        # Load model
+        model = attempt_load(weights, device=device)  # load FP32 model
+        imgsz = check_img_size(imgsz, s=model.stride.max())  # check img_size
+        if half:
+            model.half()  # to FP16
+
+        # Get names and colors
+        names = model.module.names if hasattr(model, 'module') else model.names
+        colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+
+        # Run inference
+        img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
+        _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
+
+        # Set Dataloader & Run inference
+        img = letterbox(im0s, new_shape=imgsz)[0]
+        # Convert
+        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+        img = np.ascontiguousarray(img)
+
+        img = torch.from_numpy(img).to(device)
+        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img /= 255.0  # 0 - 255 to 0.0 - 1.0
+        if img.ndimension() == 3:
+            img = img.unsqueeze(0)
+
+        # Inference
+        # pred = model(img, augment=opt.augment)[0]
+        pred = model(img)[0]
+
+        # Apply NMS
+        pred = non_max_suppression(pred, opt_conf_thres, opt_iou_thres)
+
+        # Process detections
+        ret = []
+        for i, det in enumerate(pred):  # detections per image
+            if len(det):
+                # Rescale boxes from img_size to im0 size
+                det[:, :4] = scale_boxes(img.shape[2:], det[:, :4], im0s.shape).round()
+                # Write results
+                for *xyxy, conf, cls in reversed(det):
+                    label = f'{names[int(cls)]}'
+                    prob = round(float(conf) * 100, 2)  # round 2
+                    ret_i = [label, prob, xyxy]
+                    ret.append(ret_i)
+        # 返回信息
+        # label 标签信息 'face' 'smoke' 'drink' 'phone'
+        # prob 为对应的置信度
+        # xyxy 为对应的位置信息（外框）
+        return ret
+
+    def exec_picture(self):
+        if self.use_gpu:
+            print("[*] GPU")
+            os.environ["CUDA_VISIBLE_DEVICES"] = self.gpu_idx
+            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=self.gpu_mem)
+            with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+                model = lowlight_enhance(sess)
+                self.picture_enhancement(model)
+        else:
+            print("[*] CPU")
+            with tf.Session() as sess:
+                model = lowlight_enhance(sess)
+                self.picture_enhancement(model)
+
+    def _learning_face(self, event):
         """dlib的初始化调用"""
         # 使用人脸检测器get_frontal_face_detector
         self.detector = dlib.get_frontal_face_detector()
@@ -272,35 +448,48 @@ class Fatigue_detecting(wx.Frame):
         (lStart, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
         (rStart, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
         (mStart, mEnd) = face_utils.FACIAL_LANDMARKS_IDXS["mouth"]
-        
-        #建cv2摄像头对象，这里使用电脑自带摄像头，如果接了外部摄像头，则自动切换到外部摄像头
+
+        # 建cv2摄像头对象，这里使用电脑自带摄像头，如果接了外部摄像头，则自动切换到外部摄像头
         self.cap = cv2.VideoCapture(self.VIDEO_STREAM)
-        
-        if self.cap.isOpened()==True:#  返回true/false 检查初始化是否成功
+
+        if self.cap.isOpened() == True:  # 返回true/false 检查初始化是否成功
             self.CAMERA_STYLE = True
             self.m_textCtrl3.AppendText(u"打开摄像头成功!!!\n")
         else:
             self.m_textCtrl3.AppendText(u"摄像头打开失败!!!\n")
-            #显示封面图
+            # 显示封面图
             self.bmp.SetBitmap(wx.Bitmap(self.image_cover))
         # 成功打开视频，循环读取视频流
-        while(self.cap.isOpened()):
+        while (self.cap.isOpened()):
             # cap.read()
             # 返回两个值：
             #    一个布尔值true/false，用来判断读取视频是否成功/是否到视频末尾
             #    图像对象，图像的三维矩阵
+            # 获取视频帧数
+            # FPS = self.cap.get(5)
+            self.Roll += 1
             flag, im_rd = self.cap.read()
+
+            """
+            低光增强
+            """
+            if (self.lowlight_checkBox5.GetValue() == True):
+                cv2.imwrite('dataset/retinexnet/test/low/{}.jpg'.format(self.frame_count), im_rd)
+                self.exec_picture()
+                im_rd = cv2.imread('results/test/{}_S.jpg'.format(self.frame_count))
+
+            self.frame_count += 1
             # 取灰度
             img_gray = cv2.cvtColor(im_rd, cv2.COLOR_RGB2GRAY)
-            
+
             # 使用人脸检测器检测每一帧图像中的人脸。并返回人脸数faces
             faces = self.detector(img_gray, 0)
             # 如果检测到人脸
-            if(len(faces)!=0):
+            if (len(faces) != 0):
                 # enumerate方法同时返回数据对象的索引和数据，k为索引，d为faces中的对象
                 for k, d in enumerate(faces):
                     # 用红色矩形框出人脸
-                    cv2.rectangle(im_rd, (d.left(), d.top()), (d.right(), d.bottom()), (0, 0, 255),1)
+                    # cv2.rectangle(im_rd, (d.left(), d.top()), (d.right(), d.bottom()), (0, 0, 255), 1)
                     # 使用预测器得到68点数据的坐标
                     shape = self.predictor(im_rd, d)
                     # 圆圈显示每个特征点
@@ -311,35 +500,39 @@ class Fatigue_detecting(wx.Frame):
                     """
                     打哈欠
                     """
-                    if self.yawn_checkBox1.GetValue()== True:
+                    if self.yawn_checkBox1.GetValue() == True:
                         # 嘴巴坐标
-                        mouth = shape[mStart:mEnd]        
+                        mouth = shape[mStart:mEnd]
                         # 打哈欠
                         mar = self.mouth_aspect_ratio(mouth)
                         # 使用cv2.convexHull获得凸包位置，使用drawContours画出轮廓位置进行画图操作
                         mouthHull = cv2.convexHull(mouth)
                         cv2.drawContours(im_rd, [mouthHull], -1, (0, 255, 0), 1)
-                        # 同理，判断是否打哈欠    
-                        if mar > self.MAR_THRESH:# 张嘴阈值0.5
+                        # 同理，判断是否打哈欠
+                        if mar > self.MAR_THRESH:  # 张嘴阈值0.5
                             self.mCOUNTER += 1
                         else:
                             # 如果连续3次都小于阈值，则表示打了一次哈欠
-                            if self.mCOUNTER >= self.MOUTH_AR_CONSEC_FRAMES:# 阈值：3
+                            if self.mCOUNTER >= self.MOUTH_AR_CONSEC_FRAMES:  # 阈值：3
                                 self.mTOTAL += 1
-                                #显示
-                                cv2.putText(im_rd, "Yawning!", (10, 60),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                                self.m_textCtrl3.AppendText(time.strftime('%Y-%m-%d %H:%M ', time.localtime())+u"打哈欠\n")
+                                # 显示
+                                cv2.putText(im_rd, "Yawning!", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                                self.m_textCtrl3.AppendText(
+                                    time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"打哈欠\n")
                             # 重置嘴帧计数器
                             self.mCOUNTER = 0
-                        cv2.putText(im_rd, "COUNTER: {}".format(self.mCOUNTER), (150, 60),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2) 
-                        cv2.putText(im_rd, "MAR: {:.2f}".format(mar), (300, 60),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                        cv2.putText(im_rd, "Yawning: {}".format(self.mTOTAL), (450, 60),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,0), 2)
+                        cv2.putText(im_rd, "COUNTER: {}".format(self.mCOUNTER), (150, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.7, (0, 0, 255), 2)
+                        cv2.putText(im_rd, "MAR: {:.2f}".format(mar), (300, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                    (0, 0, 255), 2)
+                        cv2.putText(im_rd, "Yawning: {}".format(self.mTOTAL), (450, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                    (255, 255, 0), 2)
                     else:
                         pass
                     """
                     眨眼
                     """
-                    if self.blink_checkBox2.GetValue()== True:
+                    if self.blink_checkBox2.GetValue() == True:
                         # 提取左眼和右眼坐标
                         leftEye = shape[lStart:lEnd]
                         rightEye = shape[rStart:rEnd]
@@ -353,37 +546,43 @@ class Fatigue_detecting(wx.Frame):
                         cv2.drawContours(im_rd, [leftEyeHull], -1, (0, 255, 0), 1)
                         cv2.drawContours(im_rd, [rightEyeHull], -1, (0, 255, 0), 1)
                         # 循环，满足条件的，眨眼次数+1
-                        if ear < self.EYE_AR_THRESH:# 眼睛长宽比：0.2
+                        if ear < self.EYE_AR_THRESH:  # 眼睛长宽比：0.2
                             self.COUNTER += 1
 
                         else:
                             # 如果连续3次都小于阈值，则表示进行了一次眨眼活动
-                            if self.COUNTER >= self.EYE_AR_CONSEC_FRAMES:# 阈值：3
+                            if self.COUNTER >= self.EYE_AR_CONSEC_FRAMES:  # 阈值：3
                                 self.TOTAL += 1
-                                self.m_textCtrl3.AppendText(time.strftime('%Y-%m-%d %H:%M ', time.localtime())+u"眨眼\n")
+                                self.m_textCtrl3.AppendText(
+                                    time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"眨眼\n")
                             # 重置眼帧计数器
                             self.COUNTER = 0
                         # 第十四步：进行画图操作，同时使用cv2.putText将眨眼次数进行显示
-                        cv2.putText(im_rd, "Faces: {}".format(len(faces)), (10, 30),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)     
-                        cv2.putText(im_rd, "COUNTER: {}".format(self.COUNTER), (150, 30),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2) 
-                        cv2.putText(im_rd, "EAR: {:.2f}".format(ear), (300, 30),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                        cv2.putText(im_rd, "Blinks: {}".format(self.TOTAL), (450, 30),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,0), 2)
+                        cv2.putText(im_rd, "Faces: {}".format(len(faces)), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                    (0, 0, 255), 2)
+                        cv2.putText(im_rd, "COUNTER: {}".format(self.COUNTER), (150, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                    (0, 0, 255), 2)
+                        cv2.putText(im_rd, "EAR: {:.2f}".format(ear), (300, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                    (0, 0, 255), 2)
+                        cv2.putText(im_rd, "Blinks: {}".format(self.TOTAL), (450, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                    (255, 255, 0), 2)
                     else:
                         pass
                     """
                     瞌睡点头
                     """
-                    if self.nod_checkBox7.GetValue()== True:
+                    if self.nod_checkBox7.GetValue() == True:
                         # 获取头部姿态
-                        reprojectdst, euler_angle = self.get_head_pose(shape) 
-                        har = euler_angle[0, 0]# 取pitch旋转角度
-                        if har > self.HAR_THRESH:# 点头阈值0.3
+                        reprojectdst, euler_angle = self.get_head_pose(shape)
+                        har = euler_angle[0, 0]  # 取pitch旋转角度
+                        if har > self.HAR_THRESH:  # 点头阈值0.3
                             self.hCOUNTER += 1
                         else:
                             # 如果连续3次都小于阈值，则表示瞌睡点头一次
-                            if self.hCOUNTER >= self.NOD_AR_CONSEC_FRAMES:# 阈值：3
+                            if self.hCOUNTER >= self.NOD_AR_CONSEC_FRAMES:  # 阈值：3
                                 self.hTOTAL += 1
-                                self.m_textCtrl3.AppendText(time.strftime('%Y-%m-%d %H:%M ', time.localtime())+u"瞌睡点头\n")
+                                self.m_textCtrl3.AppendText(
+                                    time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"瞌睡点头\n")
                             # 重置点头帧计数器
                             self.hCOUNTER = 0
                         # 绘制正方体12轴(视频流尺寸过大时，reprojectdst会超出int范围，建议压缩检测视频尺寸)
@@ -393,107 +592,187 @@ class Fatigue_detecting(wx.Frame):
                         '''
 
                         # 显示角度结果
-                        cv2.putText(im_rd, "X: " + "{:7.2f}".format(euler_angle[0, 0]), (10, 90), cv2.FONT_HERSHEY_SIMPLEX,0.75, (0, 255, 0), thickness=2)# GREEN
-                        cv2.putText(im_rd, "Y: " + "{:7.2f}".format(euler_angle[1, 0]), (150, 90), cv2.FONT_HERSHEY_SIMPLEX,0.75, (255, 0, 0), thickness=2)# BLUE
-                        cv2.putText(im_rd, "Z: " + "{:7.2f}".format(euler_angle[2, 0]), (300, 90), cv2.FONT_HERSHEY_SIMPLEX,0.75, (0, 0, 255), thickness=2)# RED    
-                        cv2.putText(im_rd, "Nod: {}".format(self.hTOTAL), (450, 90),cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,0), 2)
+                        cv2.putText(im_rd, "X: " + "{:7.2f}".format(euler_angle[0, 0]), (10, 90),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), thickness=2)  # GREEN
+                        cv2.putText(im_rd, "Y: " + "{:7.2f}".format(euler_angle[1, 0]), (150, 90),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 0, 0), thickness=2)  # BLUE
+                        cv2.putText(im_rd, "Z: " + "{:7.2f}".format(euler_angle[2, 0]), (300, 90),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), thickness=2)  # RED
+                        cv2.putText(im_rd, "Nod: {}".format(self.hTOTAL), (450, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                                    (255, 255, 0), 2)
                     else:
                         pass
-                    
-                #print('嘴巴实时长宽比:{:.2f} '.format(mar)+"\t是否张嘴："+str([False,True][mar > self.MAR_THRESH]))
-                #print('眼睛实时长宽比:{:.2f} '.format(ear)+"\t是否眨眼："+str([False,True][self.COUNTER>=1]))
-            """else:
+
+                    # yolo检测
+
+                    action = self.distraction_detection(im_rd)
+                    self.ActionCOUNTER += 1
+                    for label, prob, xyxy in action:
+                        text = label + str(prob)
+                        """
+                        抽烟
+                        """
+                        if self.smoke_checkBox4.GetValue() == True:
+                            # 将标签和置信度何在一起
+                            text = label + str(prob)
+                            if label == "smoke":
+                                if self.ActionCOUNTER > 0:
+                                    self.ActionCOUNTER -= 1
+                                self.m_textCtrl3.AppendText(
+                                    time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"正在抽烟\n")
+                        """
+                        喝水
+                        """
+                        if self.drink_checkBox6.GetValue() == True:
+                            # 将标签和置信度何在一起
+                            text = label + str(prob)
+                            if label == "drink":
+                                if self.ActionCOUNTER > 0:
+                                    self.ActionCOUNTER -= 1
+                                self.m_textCtrl3.AppendText(
+                                    time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"正在喝水\n")
+                        """
+                        玩手机
+                        """
+                        if self.phone_checkBox7.GetValue() == True:
+                            # 将标签和置信度何在一起
+                            text = label + str(prob)
+                            if label == "phone":
+                                if self.ActionCOUNTER > 0:
+                                    self.ActionCOUNTER -= 1
+                                self.m_textCtrl3.AppendText(
+                                    time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"正在玩手机\n")
+
+                        # 如果超过15帧未检测到分心行为，将label修改为平时状态
+                        if self.ActionCOUNTER == 15:
+                            self.ActionCOUNTER = 0
+
+                        # 画出识别框
+                        left = int(xyxy[0])
+                        top = int(xyxy[1])
+                        right = int(xyxy[2])
+                        bottom = int(xyxy[3])
+                        cv2.rectangle(im_rd, (left, top), (right, bottom), (0, 255, 0), 1)
+
+                        # 在框的左上角画出标签和置信度
+                        cv2.putText(im_rd, text, (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 1)
+
+
+                # print('嘴巴实时长宽比:{:.2f} '.format(mar)+"\t是否张嘴："+str([False,True][mar > self.MAR_THRESH]))
+                # print('眼睛实时长宽比:{:.2f} '.format(ear)+"\t是否眨眼："+str([False,True][self.COUNTER>=1]))
+            else:
                 # 没有检测到人脸
-                self.oCOUNTER+=1
-                cv2.putText(im_rd, "No Face", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255),3, cv2.LINE_AA)
+                self.oCOUNTER += 1
+                cv2.putText(im_rd, "No Face", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
                 if self.oCOUNTER >= self.OUT_AR_CONSEC_FRAMES_check:
-                    self.m_textCtrl3.AppendText(time.strftime('%Y-%m-%d %H:%M ', time.localtime())+u"员工脱岗!!!\n")
+                    self.m_textCtrl3.AppendText(time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"未检测到人脸!!!\n")
                     self.oCOUNTER = 0
-            """
-                
-            # 确定疲劳提示:眨眼50次，打哈欠15次，瞌睡点头30次
-            if self.TOTAL >= 50 or self.mTOTAL>=15 or self.hTOTAL>=30:
-                cv2.putText(im_rd, "SLEEP!!!", (100, 200),cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
-                #self.m_textCtrl3.AppendText(u"疲劳")
-                
+
+            if self.Roll % 150 == 0:
+                perclos = (self.Rolleye / self.Roll) + (self.Rollmouth / self.Roll) * 0.2
+                #print("过去150帧中，Perclos得分为" + str(round(perclos, 3)))
+                self.m_textCtrl3.AppendText(time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"一级疲劳!!!\n")
+                self.count += 1
+                if perclos > 0.38:
+                    cv2.putText(im_rd, "SLEEP!!!", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
+                    self.m_textCtrl3.AppendText(time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"过去150帧中，Perclos得分为" + str(round(perclos, 3)) + "\n")
+                    # 确定疲劳提示:眨眼50次，打哈欠15次，瞌睡点头15次
+                    if self.TOTAL >= 50 or self.mTOTAL >= 15 or self.hTOTAL >= 15:
+                        cv2.putText(im_rd, "SLEEP!!!SLEEP!!!", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255),
+                                    3)
+                        self.m_textCtrl3.AppendText(time.strftime('%Y-%m-%d %H:%M ', time.localtime()) + u"二级严重疲劳!!!!!!\n")
+                elif self.Roll % 450 == 0 and self.count == 3:
+                    self.TOTAL = 0
+                    self.hTOTAL = 0
+                    self.mTOTAL = 0
+                    self.count = 0
+
             # opencv中imread的图片内部是BGR排序，wxPython的StaticBitmap需要的图片是RGB排序，不转换会出现颜色变换
-            height,width = im_rd.shape[:2]
+            height, width = im_rd.shape[:2]
             image1 = cv2.cvtColor(im_rd, cv2.COLOR_BGR2RGB)
-            pic = wx.Bitmap.FromBuffer(width,height,image1)
+            pic = wx.Bitmap.FromBuffer(width, height, image1)
             # 显示图片在panel上：
             self.bmp.SetBitmap(pic)
+
+            if self.lowlight_checkBox5.GetValue() == True:
+                shutil.rmtree('./dataset/retinexnet/test/low/')
+                shutil.rmtree('./results/test')
+                os.mkdir('./dataset/retinexnet/test/low/')
+                os.mkdir('./results/test')
 
         # 释放摄像头
         self.cap.release()
 
-    def camera_on(self,event):
+    def camera_on(self, event):
         """使用多线程，子线程运行后台的程序，主线程更新前台的UI，这样不会互相影响"""
         import _thread
         # 创建子线程，按钮调用这个方法，
         _thread.start_new_thread(self._learning_face, (event,))
-    
-    def cameraid_choice( self, event ):
+
+    def cameraid_choice(self, event):
         # 摄像头编号
-        cameraid = int(event.GetString()[-1])# 截取最后一个字符
+        cameraid = int(event.GetString()[-1])  # 截取最后一个字符
         if cameraid == 0:
             self.m_textCtrl3.AppendText(u"准备打开本地摄像头!!!\n")
         if cameraid == 1 or cameraid == 2:
             self.m_textCtrl3.AppendText(u"准备打开外置摄像头!!!\n")
         self.VIDEO_STREAM = cameraid
-        
-    def vedio_on( self, event ):  
-        if self.CAMERA_STYLE == True :# 释放摄像头资源
+
+    def vedio_on(self, event):
+        if self.CAMERA_STYLE == True:  # 释放摄像头资源
             # 弹出关闭摄像头提示窗口
             dlg = wx.MessageDialog(None, u'确定要关闭摄像头？', u'操作提示', wx.YES_NO | wx.ICON_QUESTION)
-            if(dlg.ShowModal() == wx.ID_YES):
-                self.cap.release()#释放摄像头
-                self.bmp.SetBitmap(wx.Bitmap(self.image_cover))#封面
-                dlg.Destroy()#取消弹窗
+            if (dlg.ShowModal() == wx.ID_YES):
+                self.cap.release()  # 释放摄像头
+                self.bmp.SetBitmap(wx.Bitmap(self.image_cover))  # 封面
+                dlg.Destroy()  # 取消弹窗
         # 选择文件夹对话框窗口
-        dialog = wx.FileDialog(self,u"选择视频检测",os.getcwd(),'',wildcard="(*.mp4)|*.mp4",style=wx.FD_OPEN | wx.FD_CHANGE_DIR)
+        dialog = wx.FileDialog(self, u"选择视频检测", os.getcwd(), '', wildcard="(*.mp4)|*.mp4",
+                               style=wx.FD_OPEN | wx.FD_CHANGE_DIR)
         if dialog.ShowModal() == wx.ID_OK:
-            #如果确定了选择的文件夹，将文件夹路径写到m_textCtrl3控件
-            self.m_textCtrl3.SetValue(u"文件路径:"+dialog.GetPath()+"\n")
-            self.VIDEO_STREAM = str(dialog.GetPath())# 更新全局变量路径
+            # 如果确定了选择的文件夹，将文件夹路径写到m_textCtrl3控件
+            self.m_textCtrl3.SetValue(u"文件路径:" + dialog.GetPath() + "\n")
+            self.VIDEO_STREAM = str(dialog.GetPath())  # 更新全局变量路径
             dialog.Destroy
             """使用多线程，子线程运行后台的程序，主线程更新前台的UI，这样不会互相影响"""
             import _thread
             # 创建子线程，按钮调用这个方法，
             _thread.start_new_thread(self._learning_face, (event,))
-    
-    def AR_CONSEC_FRAMES( self, event ):
-        self.m_textCtrl3.AppendText(u"设置疲劳间隔为:\t"+event.GetString()+"秒\n")
+
+    def AR_CONSEC_FRAMES(self, event):
+        self.m_textCtrl3.AppendText(u"设置疲劳间隔为:\t" + event.GetString() + "秒\n")
         self.AR_CONSEC_FRAMES_check = int(event.GetString())
-        
-    def OUT_AR_CONSEC_FRAMES( self, event ):
-        self.m_textCtrl3.AppendText(u"设置脱岗间隔为:\t"+event.GetString()+"秒\n")
+
+    def OUT_AR_CONSEC_FRAMES(self, event):
+        self.m_textCtrl3.AppendText(u"设置脱岗间隔为:\t" + event.GetString() + "秒\n")
         self.OUT_AR_CONSEC_FRAMES_check = int(event.GetString())
 
-    def off(self,event):
+    def off(self, event):
         """关闭摄像头，显示封面页"""
         self.cap.release()
         self.bmp.SetBitmap(wx.Bitmap(self.image_cover))
-        
+
     def OnClose(self, evt):
         """关闭窗口事件函数"""
         dlg = wx.MessageDialog(None, u'确定要关闭本窗口？', u'操作提示', wx.YES_NO | wx.ICON_QUESTION)
-        if(dlg.ShowModal() == wx.ID_YES):
+        if (dlg.ShowModal() == wx.ID_YES):
             self.Destroy()
         print("检测结束，成功退出程序!!!")
 
-            
+
 class main_app(wx.App):
     """
      在OnInit() 里边申请Frame类，这样能保证一定是在app后调用，
      这个函数是app执行完自己的__init__函数后就会执行
     """
+
     # OnInit 方法在主事件循环开始前被wxPython系统调用，是wxpython独有的
     def OnInit(self):
-        self.frame = Fatigue_detecting(parent=None,title="Fatigue Demo")
+        self.frame = Fatigue_detecting(parent=None, title="Danger Driver Demo")
         self.frame.Show(True)
-        return True   
+        return True
 
-    
+
 if __name__ == "__main__":
     app = main_app()
     app.MainLoop()
