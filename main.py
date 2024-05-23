@@ -454,7 +454,7 @@ def main(_):
 
             # 在框的左上角画出标签和置信度
             cv2.putText(frame, text, (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 1)
-            if (label == "face"):
+            if (label != "face"):
                 cv2.putText(frame, "NO FACE!!!", (200, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
             if (label == "phone"):
                 print("<font color=red>正在用手机</font>")
@@ -497,7 +497,7 @@ def main(_):
 
 
         # 按q退出
-        cv2.putText(frame, "Press 'q': Quit", (20, 500), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (84, 255, 159), 2)
+        #cv2.putText(frame, "Press 'q': Quit", (20, 500), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (84, 255, 159), 2)
         # 窗口显示 show with opencv
         cv2.imshow("Frame", frame)
 
@@ -507,7 +507,7 @@ def main(_):
 
         tf.get_variable_scope().reuse_variables()
 
-        cv2.imwrite('dataset/retinexnet/test/high/{}.jpg'.format(frame_count), frame)
+        #cv2.imwrite('dataset/retinexnet/test/high/{}.jpg'.format(frame_count), frame)
 
         # shutil.rmtree('./dataset/retinexnet/test/low/')
         # shutil.rmtree('./results/test')

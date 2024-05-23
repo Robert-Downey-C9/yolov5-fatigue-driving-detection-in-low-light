@@ -28,19 +28,21 @@ from glob import glob
 from models.RetinexNet.model import lowlight_enhance
 from utils.RetinexNet.utils import *
 from utils.distraction.utils import *
-from main import *
 import warnings
+
 warnings.filterwarnings('ignore')
+
 import tensorflow._api.v2.compat.v1 as tf
+
+from main import *
 tf.disable_v2_behavior()
 
-tf.reset_default_graph()
+
 ###########################################################################
 ## Class Fatigue_detecting
 ###########################################################################
 
 COVER = 'data/img/camera.png'
-
 
 class Fatigue_detecting(wx.Frame):
 
@@ -190,15 +192,6 @@ class Fatigue_detecting(wx.Frame):
         print("wxpython界面初始化加载完成！")
 
         """参数"""
-        # 必要的设置
-        self.use_gpu = 0
-        self.gpu_idx = '0'
-        self.gpu_mem = 0.5
-        self.phase = 'test'
-        self.save_dir = './results/test'
-        self.test_dir = './dataset/retinexnet/test/low'
-        self.decom = 0
-
         # 默认为摄像头0
         self.VIDEO_STREAM = 0
         self.CAMERA_STYLE = False  # False未打开摄像头，True摄像头已打开
@@ -338,106 +331,8 @@ class Fatigue_detecting(wx.Frame):
         mar = (A + B) / (2.0 * C)
         return mar
 
-    # 图片增强
-    def picture_enhancement(self, lowlight_enhance):
-        # 检查测试样本所在的目录是否存在，以及准备测试结果保存的目录
-        if self.test_dir == None:
-            print("[!] please provide --test_dir")
-
-        if not os.path.exists(self.save_dir):
-            os.makedirs(self.save_dir)
-
-        # 读取测试样本（其中test_high_data并没有用到）
-        test_low_data_name = glob(os.path.join(self.test_dir) + '/*.*')
-        test_low_data = []
-        test_high_data = []
-        for idx in range(len(test_low_data_name)):
-            test_low_im = load_images(test_low_data_name[idx])
-            test_low_data.append(test_low_im)
-
-        # 测试整个架构（其中test_high_data为无效参数）
-        lowlight_enhance.test(test_low_data, test_high_data, test_low_data_name, save_dir=self.save_dir,
-                              decom_flag=self.decom)
-
-    # yolov5算法
-    def distraction_detection(self, im0s):
-        weights = r'weights/best.pt'
-        opt_device = 'cpu'  # device = 'cpu' or '0' or '0,1,2,3'
-        imgsz = 640
-        opt_conf_thres = 0.6
-        opt_iou_thres = 0.45
-
-        # Initialize
-        set_logging()
-        device = select_device(opt_device)
-        half = device.type != 'cpu'  # half precision only supported on CUDA
-
-        # Load model
-        model = attempt_load(weights, device=device)  # load FP32 model
-        imgsz = check_img_size(imgsz, s=model.stride.max())  # check img_size
-        if half:
-            model.half()  # to FP16
-
-        # Get names and colors
-        names = model.module.names if hasattr(model, 'module') else model.names
-        colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
-
-        # Run inference
-        img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
-        _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
-
-        # Set Dataloader & Run inference
-        img = letterbox(im0s, new_shape=imgsz)[0]
-        # Convert
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
-        img = np.ascontiguousarray(img)
-
-        img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
-        img /= 255.0  # 0 - 255 to 0.0 - 1.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
-
-        # Inference
-        # pred = model(img, augment=opt.augment)[0]
-        pred = model(img)[0]
-
-        # Apply NMS
-        pred = non_max_suppression(pred, opt_conf_thres, opt_iou_thres)
-
-        # Process detections
-        ret = []
-        for i, det in enumerate(pred):  # detections per image
-            if len(det):
-                # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_boxes(img.shape[2:], det[:, :4], im0s.shape).round()
-                # Write results
-                for *xyxy, conf, cls in reversed(det):
-                    label = f'{names[int(cls)]}'
-                    prob = round(float(conf) * 100, 2)  # round 2
-                    ret_i = [label, prob, xyxy]
-                    ret.append(ret_i)
-        # 返回信息
-        # label 标签信息 'face' 'smoke' 'drink' 'phone'
-        # prob 为对应的置信度
-        # xyxy 为对应的位置信息（外框）
-        return ret
-
-    def exec_picture(self):
-        if self.use_gpu:
-            print("[*] GPU")
-            os.environ["CUDA_VISIBLE_DEVICES"] = self.gpu_idx
-            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=self.gpu_mem)
-            with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
-                model = lowlight_enhance(sess)
-                self.picture_enhancement(model)
-        else:
-            print("[*] CPU")
-            with tf.Session() as sess:
-                model = lowlight_enhance(sess)
-                self.picture_enhancement(model)
-
     def _learning_face(self, event):
+
         """dlib的初始化调用"""
         # 使用人脸检测器get_frontal_face_detector
         self.detector = dlib.get_frontal_face_detector()
@@ -474,8 +369,9 @@ class Fatigue_detecting(wx.Frame):
             低光增强
             """
             if (self.lowlight_checkBox5.GetValue() == True):
+                tf.reset_default_graph()
                 cv2.imwrite('dataset/retinexnet/test/low/{}.jpg'.format(self.frame_count), im_rd)
-                self.exec_picture()
+                exec_picture()
                 im_rd = cv2.imread('results/test/{}_S.jpg'.format(self.frame_count))
 
             self.frame_count += 1
@@ -605,7 +501,7 @@ class Fatigue_detecting(wx.Frame):
 
                     # yolo检测
 
-                    action = self.distraction_detection(im_rd)
+                    action = distraction_detection(im_rd)
                     self.ActionCOUNTER += 1
                     for label, prob, xyxy in action:
                         text = label + str(prob)
